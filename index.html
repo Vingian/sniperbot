@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html translate="no">
+	<head>
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<meta name="google" content="notranslate"/>
+		<title>SniperBot - be the first!</title>
+		<script src="https://cdn.tailwindcss.com"></script>
+		<script src="https://unpkg.com/alpinejs" defer></script>
+		<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/web3@latest/dist/web3.min.js"></script>
+		<script>
+			function ShortHash(h, n = 4) { h = h.replace(/0x/ig, ''); return '0x' + h.substring(0, n) + '...' + h.substring(h.length - n); }
+			function GetHash(e) { var x = $('#' + e).val().trim(); return x ? '0x' + x.replace(/0x/ig, '') : $('#' + e).prop('defaultValue'); }
+			function GetNumber(e) { return Math.abs(Number($('#' + e).val()) || Number($('#' + e).prop('defaultValue')) || 0); }
+			function GetString(e) { return $('#' + e).val().trim() || $('#' + e).prop('defaultValue'); }
+			function Bulk(r, f) { return r.map(v => { return {[v]: f(v)}; }).reduce((o, v) => { return Object.assign(o, v); }, {}); }
+			function Log(m, t = 0) {
+				const x = $('#log');
+				if(Log['last'] === m) {
+					Log['counter']++;
+					x.find('.log_counter:first').html('<span class="text-blue-600">[</span>' + Log['counter'] + '<span class="text-blue-600">]</span>');
+				} else {
+					Log['last'] = m;
+					Log['counter'] = 0;
+					switch(t) {
+						case 1: m = '<span class="text-yellow-400">' + m + '</span>'; break;
+						case 2: m = '<span class="text-red-500">' + m + '</span>'; break;
+					}
+					x.html('<p class="-indent-4 pl-4"><span class="text-blue-600">[</span>' + (new Date()).toTimeString().substr(0, 5) + '<span class="text-blue-600">]</span> ' + m + ' <span class="log_counter"></span></p>' + x.html());
+				}
+			}
+			function PancakeBuy(token, liquidity, bnb, repeat, gas, limit, pkey, rpc, ll, l) {
+				const bnb_addr = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c';
+				const busd_addr = '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56';
+				const usdt_addr = '0x55d398326f99059fF775485246999027B3197955';
+				const swap_addr = '0x10ED43C718714eb63d5aA57B78B54704E256024E';
+				const swap_abi = [{"inputs":[{"internalType":"uint256","name":"amountOutMin","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"swapExactETHForTokens","outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}],"stateMutability":"payable","type":"function"}];
+				const web3 = new Web3(rpc);
+				const swap = new web3.eth.Contract(swap_abi, swap_addr);
+				const wallet = web3.eth.accounts.wallet.add(pkey);
+				const v = web3.utils.toWei('' + bnb);
+				const g = web3.utils.toWei('' + gas, 'gwei');
+				if(!ll) ll = () => {};
+				if(!l) l = () => {};
+				swap.transactionConfirmationBlocks = 1;
+				swap.transactionPollingTimeout = 5*60;
+				web3.eth.defaultCommon = {customChain: {chainId: 56, networkId: 56}};
+				var pathswap = [bnb_addr, token];
+				switch(liquidity) {
+					case 'BUSD': pathswap = [bnb_addr, busd_addr, token]; l('Liquidity: ' + ShortHash(busd_addr, 4), 1); break;
+					case 'USDT': pathswap = [bnb_addr, usdt_addr, token]; l('Liquidity: ' + ShortHash(usdt_addr, 4), 1); break;
+				}
+				web3.eth.getTransactionCount(wallet.address).then((nonce) => {
+					const loop1 = () => {
+						const deadline = web3.utils.toHex(Math.round(Date.now()/1000)+5*60);
+						swap.methods.swapExactETHForTokens(0, pathswap, wallet.address, deadline).estimateGas({from: wallet.address, value: v}).then((gasAmount) => {
+							gasAmount = parseInt(gasAmount*1.3);
+							gasAmount = gasAmount > limit ? limit : gasAmount;
+							const loop2 = () => {
+								swap.methods.swapExactETHForTokens(0, pathswap, wallet.address, deadline).send({from: wallet.address, gasPrice: g, gas: gasAmount, value: v, nonce: nonce}).on('transactionHash', (h) => {
+									l('Bought! [' + ShortHash(h, 8) + ']');
+									if(--repeat >= 1) { nonce++; ll(loop2); }
+									else ll();
+								}).on('error', (e) => {
+									l(e.message, 2);
+									ll(loop2);
+								});
+							}
+							loop2();
+						}).catch((e) => {
+							l(e.message, 1);
+							ll(loop1);
+						});
+					}
+					loop1();
+				}).catch((e) => {
+					l(e.message, 2);
+				});
+			}
+			function PancakeSell(token, liquidity, sell, gas, limit, pkey, rpc, l) {
+				const bnb_addr = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c';
+				const busd_addr = '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56';
+				const usdt_addr = '0x55d398326f99059fF775485246999027B3197955';
+				const swap_addr = '0x10ED43C718714eb63d5aA57B78B54704E256024E';
+				const swap_abi = [{"inputs":[{"internalType":"uint256","name":"amountIn","type":"uint256"},{"internalType":"uint256","name":"amountOutMin","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"swapExactTokensForETH","outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}],"stateMutability":"nonpayable","type":"function"}];
+				const token_abi = [{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"spender","type":"address"}],"name":"allowance","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"approve","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}];
+				const web3 = new Web3(rpc);
+				const swap = new web3.eth.Contract(swap_abi, swap_addr);
+				const check = new web3.eth.Contract(token_abi, token);
+				const wallet = web3.eth.accounts.wallet.add(pkey);
+				const g = web3.utils.toWei('' + gas, 'gwei');
+				check.transactionConfirmationBlocks = 1;
+				check.transactionPollingTimeout = 5*60;
+				web3.eth.defaultCommon = {customChain: {chainId: 56, networkId: 56}};
+				var pathswap = [token, bnb_addr];
+				switch(liquidity) {
+					case 'BUSD': pathswap = [token, busd_addr, bnb_addr]; l('Liquidity: ' + ShortHash(busd_addr, 4), 1); break;
+					case 'USDT': pathswap = [token, usdt_addr, bnb_addr]; l('Liquidity: ' + ShortHash(usdt_addr, 4), 1); break;
+				}
+				check.methods.balanceOf(wallet.address).call({from: wallet.address}).then((b) => {
+					b = web3.utils.toBN(b);
+					if(b > 0) {
+						if(sell < 100) b = b.muln(sell).divn(100);
+						check.methods.allowance(wallet.address, swap_addr).call({from: wallet.address}).then((v) => {
+							v = web3.utils.toBN(v);
+							const dosell = () => {
+								const deadline = web3.utils.toHex(Math.round(Date.now()/1000)+5*60);
+								swap.methods.swapExactTokensForETH(web3.utils.toHex(b), 0, pathswap, wallet.address, deadline).estimateGas({from: wallet.address}).then((gasAmount) => {
+									gasAmount = parseInt(gasAmount*1.3);
+									gasAmount = gasAmount > limit ? limit : gasAmount;
+									swap.methods.swapExactTokensForETH(web3.utils.toHex(b), 0, pathswap, wallet.address, deadline).send({from: wallet.address, gasPrice: g, gas: gasAmount}).on('transactionHash', (h) => {
+										l('Sold! [' + ShortHash(h, 8) + ']');
+									}).on('error', (e) => {
+										l(e.message, 2);
+									});
+								}).catch((e) => {
+									l(e.message, 2);
+								});
+							}
+							if(v.lt(b)) {
+								l('Allowing the sale...', 1);
+								check.methods.approve(swap_addr, '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff').estimateGas({from: wallet.address}).then((gasAmount) => {
+									gasAmount = parseInt(gasAmount*1.3);
+									check.methods.approve(swap_addr, '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff').send({from: wallet.address, gas: gasAmount}).on('receipt', (r) => {
+										l('Allowed! [' + ShortHash(r.transactionHash, 8) + ']');
+										dosell();
+									}).on('error', (e) => {
+										l(e.message, 2);
+									});
+								}).catch((e) => {
+									l(e.message, 2);
+								});
+							} else dosell();
+						}).catch((e) => {
+							l(e.message, 2);
+						});
+					} else l('Don\'t have tokens...', 1);
+				}).catch((e) => {
+					l(e.message, 2);
+				});
+			}
+			function Sell() {
+				const h = Bulk(['token', 'pkey'], GetHash);
+				const n = Bulk(['sell', 'gas', 'limit'], GetNumber);
+				const s = Bulk(['rpc'], GetString);
+				const q = ($('.liquidity').text() || '').toUpperCase();
+				const v = Object.assign(h, n, s, {liquidity: q});
+				if(!v.token) Log('Invalid token...', 1);
+				else if(!(v.sell > 0 && v.sell <= 100)) Log('Invalid sale percentage...', 1);
+				else if(v.pkey.length != 64+2) Log('Insert a valid P-Key...', 1);
+				else { Log('Selling...'); PancakeSell(v.token, v.liquidity, v.sell, v.gas, v.limit, v.pkey, v.rpc, Log); }
+			}
+			function StartStop(x) {
+				switch(x.startstop) {
+					case 0:
+						x.startstop = 2;
+						const h = Bulk(['token', 'pkey'], GetHash);
+						const n = Bulk(['bnb', 'repeat', 'gas', 'limit'], GetNumber);
+						const s = Bulk(['rpc'], GetString);
+						const q = ($('.liquidity').text() || '').toUpperCase();
+						const l = (f) => { if(x.startstop == 3 || !f) { Log('Stopped!'); x.startstop = 0; } else setTimeout(f, 250); }
+						const v = Object.assign(h, n, s, {liquidity: q});
+						if(v.token && v.bnb && v.pkey.length == 64+2) {
+							x.startstop = 1;
+							Log('Started!');
+							PancakeBuy(v.token, v.liquidity, v.bnb, v.repeat, v.gas, v.limit, v.pkey, v.rpc, l, Log);
+						} else {
+							x.startstop = 0;
+							if(!v.token) Log('Invalid token...', 1);
+							else if(!v.bnb) Log('Enter a valid BNB value...', 1);
+							else Log('Insert a valid P-Key...', 1);
+						}
+						break;
+					case 1:
+						x.startstop = 3;
+						break;
+				}
+			}
+		</script>
+	</head>
+	<body class="bg-gray-700 text-sm text-white font-sans antialiased">
+		<div class="flex h-screen">
+			<div class="w-[26rem] flex flex-col gap-2 m-auto p-2">
+				<div class="bg-black/20 border border-black/30 rounded-lg p-2" x-data="{advanced: false, startstop: 0}" x-init="$watch('advanced', value => $($refs.advanced).animate({height: 'toggle', opacity: 'toggle'}, 500))">
+					<div class="flex flex-row gap-2 mb-2">
+						<div class="basis-5/6 flex flex-row items-center gap-2">
+							<label class="whitespace-nowrap font-semibold" for="token">Token:</label>
+							<input class="w-full appearance-none bg-white/5 border border-black/20 rounded p-1 focus:outline-none" id="token" type="text" placeholder="0x123456789AbCdEf..."/>
+						</div>
+						<div class="basis-1/6 relative" x-data="{dropdownMenu: false, dropdownText: 'BNB'}">
+							<button class="w-full appearance-none bg-white/5 border border-black/20 rounded p-1 focus:outline-none liquidity" @click="dropdownMenu = !dropdownMenu" x-text="dropdownText">BNB</button>
+							<div class="absolute w-fit right-0 py-1 mt-1 bg-gray-800 rounded shadow-xl" x-show="dropdownMenu" @click="dropdownMenu = false" @click.outside="dropdownMenu = false">
+								<div class="block px-4 py-2 cursor-pointer hover:bg-gray-600" @click="dropdownText = 'BNB'">BNB</div>
+								<div class="block px-4 py-2 cursor-pointer hover:bg-gray-600" @click="dropdownText = 'BUSD'">BUSD</div>
+								<div class="block px-4 py-2 cursor-pointer hover:bg-gray-600" @click="dropdownText = 'USDT'">USDT</div>
+							</div>
+						</div>
+					</div>
+					<div class="flex flex-row gap-4 my-2">
+						<div class="basis-2/3 flex flex-row items-center gap-2">
+							<label class="whitespace-nowrap font-semibold" for="bnb">BNB:</label>
+							<input class="w-full appearance-none bg-white/5 border border-black/20 rounded p-1 focus:outline-none" id="bnb" type="number" step="any" placeholder="0.1"/>
+						</div>
+						<div class="basis-1/3 flex flex-row items-center gap-2">
+							<label class="whitespace-nowrap font-semibold" for="repeat">Repeat:</label>
+							<input class="w-full appearance-none bg-white/5 border border-black/20 rounded p-1 focus:outline-none" id="repeat" type="number" min="1" max="5" value="1"/>
+						</div>
+					</div>
+					<div class="border-t-4 border-black/20 hidden" x-ref="advanced">
+						<div class="flex flex-row gap-4 my-2">
+							<div class="basis-2/5 flex flex-row items-center gap-2">
+								<label class="whitespace-nowrap font-semibold" for="bnb">GAS:</label>
+								<input class="w-full appearance-none bg-white/5 border border-black/20 rounded p-1 focus:outline-none" id="gas" type="number" min="5" step="any" value="25"/>
+							</div>
+							<div class="basis-3/5 flex flex-row items-center gap-2">
+								<label class="whitespace-nowrap font-semibold" for="times">GAS Limit:</label>
+								<input class="w-full appearance-none bg-white/5 border border-black/20 rounded p-1 focus:outline-none" id="limit" type="number" min="300000" value="500000"/>
+							</div>
+						</div>
+						<div class="flex flex-row items-center gap-2 my-2">
+							<label class="whitespace-nowrap font-semibold" for="key">P-Key:</label>
+							<input class="w-full appearance-none bg-white/5 border border-black/20 rounded p-1 focus:outline-none" id="pkey" type="text" placeholder="0x123456789AbCdEf..."/>
+						</div>
+						<div class="flex flex-row items-center gap-2 my-2">
+							<label class="whitespace-nowrap font-semibold" for="rpc">RPC:</label>
+							<input class="w-full appearance-none bg-white/5 border border-black/20 rounded p-1 focus:outline-none" id="rpc" type="text" value="https://bsc-dataseed.binance.org/"/>
+						</div>
+					</div>
+					<div class="my-2">
+						<button class="w-full leading-none text-xs text-blue-500 appearance-none bg-black/20 border border-black/30 rounded" @click="advanced = !advanced" x-text="advanced ? '▲' : '▼'"></button>
+					</div>
+					<div class="mt-2">
+						<div class="h-10 flex flex-row">
+							<button class="basis-1/4 z-10 appearance-none font-semibold bg-yellow-600 border border-black/30 rounded-l hover:border-2 hover:border-black/30 hover:border-t-white/30 hover:border-l-white/30 active:border-2 active:border-black/30 active:border-b-white/30 active:border-r-white/30" onclick="Sell()">Sell %</button>
+							<div class="basis-1/4"><input class="w-full h-full appearance-none text-center bg-white/5 border border-yellow-600 rounded-r -ml-px pl-5 pr-2 pt-px focus:outline-none" id="sell" type="number" min="1" max="100" value="100"/></div>
+							<div class="basis-1/4"></div>
+							<button class="basis-1/4 appearance-none font-semibold border border-black/30 rounded hover:border-2 hover:border-black/30 hover:border-t-white/30 hover:border-l-white/30 active:border-2 active:border-black/30 active:border-b-white/30 active:border-r-white/30" :class="startstop % 2 ? 'bg-red-500' : 'bg-green-600'" @click="StartStop($data)" x-text="startstop % 2 ? 'Stop' : 'Start'"></button>
+						</div>
+					</div>
+				</div>
+				<div class="bg-black/20 border border-black/30 rounded-lg p-2"><div class="h-40 text-xs font-mono overflow-y-auto" id="log"></div></div>
+			</div>
+		</div>
+	</body>
+</html>
